@@ -84,55 +84,33 @@ LT(motor5_turn_left)
 wait(15, MSEC)
 
 # Start the program!
-when_started() 
-
-import random
+import urandom
 from vex import *
 
-# Initialize VEX EXP Brain
 brain = Brain()
 
-# Card definitions
-COLORS = ["Red", "Blue", "Green", "Yellow"]
-NUMBERS = [str(i) for i in range(10)]  # '0' through '9'
-SPECIALS = ["Skip", "Reverse", "Draw 2"]
+# --- Deck & Card Functions ---
 
 def create_deck():
+    colors = ["Red", "Blue", "Green", "Yellow"]
+    numbers = [str(i) for i in range(10)]
+    specials = ["Skip", "Rev", "+2"]
     deck = []
-    
-    # Add colored cards
-    for color in COLORS:
-        # One '0' per color
+
+    for color in colors:
         deck.append((color, "0"))
-        
-        # Two of '1'-'9' and special cards per color
-        for num in NUMBERS[1:]:
+        for num in numbers[1:]:
             deck.append((color, num))
             deck.append((color, num))
-            
-        for special in SPECIALS:
+        for special in specials:
             deck.append((color, special))
             deck.append((color, special))
-            
-    # Add Wild cards
+
     for _ in range(4):
         deck.append(("Wild", "Wild"))
-        deck.append(("Wild", "Draw 4"))
+        deck.append(("Wild", "+4"))
 
     return deck
-   
-def shuffle_deck(deck):
-    # Perform Fisher-Yates shuffle using supported randint
-    for i in range(len(deck) - 1, 0, -1):
-        j = random.randint(0, i)
-        deck[i], deck[j] = deck[j], deck[i]
-    return deck     
-    import urandom
-from vex import *
-
-brain = Brain()
-
-
 
 def shuffle_deck(deck):
     for i in range(len(deck) - 1, 0, -1):
@@ -140,57 +118,186 @@ def shuffle_deck(deck):
         deck[i], deck[j] = deck[j], deck[i]
     return deck
 
-def start_game():
-    # Setup deck
+def format_card(card):
+    color_code = card[0][0]  # 'R', 'B', 'G', 'Y', 'W'
+    val = card[1]
+    if val == "Skip":
+        val = "SK"
+    elif val == "Rev":
+        val = "RV"
+    elif val == "Wild":
+        val = "WD"
+    return color_code + ":" + val
+
+# --- Display Functions ---
+
+def display_hand(player_hand):
+    brain.screen.clear_screen()
+    brain.screen.set_cursor(1, 1)
+    brain.screen.print("HAND (" + str(len(player_hand)) + " cards)")
+    
+    line = 2
+    col = 1
+    for idx, card in enumerate(player_hand):
+        if line > 5:
+            break
+        brain.screen.set_cursor(line, col)
+        card_text = str(idx + 1) + ":" + format_card(card)
+        brain.screen.print(card_text)
+        
+        if col == 1:
+            col = 9  # Second column on the 16-char screen
+        else:
+            col = 1
+            line += 1
+
+# --- Top Card Selection Menu ---
+
+def input_top_card():
+    colors = ["Red", "Blue", "Green", "Yellow", "Wild"]
+    color_idx = 0
+    
+    # 1. Select Color using Brain Left/Right buttons & Check to confirm
+    while not brain.buttonCheck.pressing():
+        brain.screen.clear_screen()
+        brain.screen.set_cursor(1, 1)
+        brain.screen.print("TOP CARD COLOR")
+        brain.screen.set_cursor(3, 1)
+        brain.screen.print("Color: " + colors[color_idx])
+        brain.screen.set_cursor(5, 1)
+        brain.screen.print("[< >] [CHECK:OK]")
+        
+        if brain.buttonRight.pressing():
+            color_idx = (color_idx + 1) % len(colors)
+            while brain.buttonRight.pressing():
+                wait(20, MSEC)
+        elif brain.buttonLeft.pressing():
+            color_idx = (color_idx - 1) % len(colors)
+            while brain.buttonLeft.pressing():
+                wait(20, MSEC)
+        wait(50, MSEC)
+        
+    while brain.buttonCheck.pressing():
+        wait(20, MSEC)
+        
+    # 2. Select Value using Brain Left/Right buttons & Check to confirm
+    values = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "Skip", "Rev", "+2", "Wild", "+4"]
+    val_idx = 0
+    
+    while not brain.buttonCheck.pressing():
+        brain.screen.clear_screen()
+        brain.screen.set_cursor(1, 1)
+        brain.screen.print("TOP CARD VALUE")
+        brain.screen.set_cursor(3, 1)
+        brain.screen.print("Value: " + values[val_idx])
+        brain.screen.set_cursor(5, 1)
+        brain.screen.print("[< >] [CHECK:OK]")
+        
+        if brain.buttonRight.pressing():
+            val_idx = (val_idx + 1) % len(values)
+            while brain.buttonRight.pressing():
+                wait(20, MSEC)
+        elif brain.buttonLeft.pressing():
+            val_idx = (val_idx - 1) % len(values)
+            while brain.buttonLeft.pressing():
+                wait(20, MSEC)
+        wait(50, MSEC)
+
+    while brain.buttonCheck.pressing():
+        wait(20, MSEC)
+
+    return (colors[color_idx], values[val_idx])
+
+# --- Turn Logic & Menu ---
+
+def is_valid_move(card, top_card):
+    card_color, card_val = card
+    top_color, top_val = top_card
+    
+    if card_color == "Wild":
+        return True
+    if card_color == top_color or card_val == top_val:
+        return True
+    return False
+
+def player_turn_menu(deck, player_hand, top_card):
+    playable_indices = [i for i, card in enumerate(player_hand) if is_valid_move(card, top_card)]
+    
+    if not playable_indices:
+        # Forced draw
+        brain.screen.clear_screen()
+        brain.screen.set_cursor(1, 1)
+        brain.screen.print("NO VALID MOVES!")
+        brain.screen.set_cursor(3, 1)
+        brain.screen.print("Press CHECK")
+        brain.screen.set_cursor(4, 1)
+        brain.screen.print("to Draw Card")
+        
+        while not brain.buttonCheck.pressing():
+            wait(20, MSEC)
+        while brain.buttonCheck.pressing():
+            wait(20, MSEC)
+            
+        if deck:
+            drawn_card = deck.pop()
+            player_hand.append(drawn_card)
+            print("Drew card: " + drawn_card[0] + " " + drawn_card[1])
+        return top_card
+
+    # Choose playable card
+    select_pos = 0
+    while not brain.buttonCheck.pressing():
+        current_card_idx = playable_indices[select_pos]
+        selected_card = player_hand[current_card_idx]
+        
+        brain.screen.clear_screen()
+        brain.screen.set_cursor(1, 1)
+        brain.screen.print("PLAY CARD?")
+        brain.screen.set_cursor(2, 1)
+        brain.screen.print("Top: " + format_card(top_card))
+        brain.screen.set_cursor(3, 1)
+        brain.screen.print("C" + str(current_card_idx + 1) + ": " + format_card(selected_card))
+        brain.screen.set_cursor(5, 1)
+        brain.screen.print("[< >] [CHECK]")
+        
+        if brain.buttonRight.pressing():
+            select_pos = (select_pos + 1) % len(playable_indices)
+            while brain.buttonRight.pressing():
+                wait(20, MSEC)
+        elif brain.buttonLeft.pressing():
+            select_pos = (select_pos - 1) % len(playable_indices)
+            while brain.buttonLeft.pressing():
+                wait(20, MSEC)
+        wait(50, MSEC)
+        
+    while brain.buttonCheck.pressing():
+        wait(20, MSEC)
+        
+    played_card = player_hand.pop(playable_indices[select_pos])
+    print("Played: " + played_card[0] + " " + played_card[1])
+    return played_card
+
+# --- Main Game Loop ---
+
+def main():
     deck = create_deck()
     shuffle_deck(deck)
     
-    # Draw starting hand of 7 cards
+    # Deal 7 cards
     player_hand = [deck.pop() for _ in range(7)]
     
-    # 1. Print starting hand to the console
-    print("--- Starting Hand ---")
-    for i, card in enumerate(player_hand, 1):
-        print(f"Card {i}: {card[0]} {card[1]}")
-    print("---------------------\n")
+    # Input top card via Brain buttons
+    top_card = input_top_card()
     
-    # 2. Print starting hand & info to the VEX EXP screen (5 rows, 16 cols max)
-    brain.screen.clear_screen()
+    # Run play/draw action via Brain buttons
+    top_card = player_turn_menu(deck, player_hand, top_card)
     
-    # Row 1: Header / Title
-    brain.screen.set_cursor(1, 1)
-    brain.screen.print("UNO - Hand: 7")
+    # Display remaining hand on Brain screen
+    display_hand(player_hand)
     
-    # Rows 2 to 4: Display first 3 cards (abbreviated to fit 16 columns)
-    for row_idx in range(3):
-        color, value = player_hand[row_idx]
-        brain.screen.set_cursor(row_idx + 2, 1)
-        # Formats string to stay within 16 characters (e.g. "C1: Red 7")
-        card_str = f"C{row_idx+1}: {color[:3]} {value}"
-        brain.screen.print(card_str[:16])
-        
-    # Row 5: Show remaining card count indicator
-    brain.screen.set_cursor(5, 1)
-    brain.screen.print("+4 more cards...")
+    print("\n--- Hand Updated ---")
+    for idx, card in enumerate(player_hand, 1):
+        print("Card " + str(idx) + ": " + card[0] + " " + card[1])
 
-    return deck, player_hand
-
-# Run the function
-deck, player_hand = start_game()
-
-
-# --- Test standard setup ---
-deck = create_deck()
-shuffle_deck(deck)
-
-# Deal initial hands (Player vs Brain AI)
-player_hand = [deck.pop() for _ in range(7)]
-ai_hand = [deck.pop() for _ in range(7)]
-discard_pile = [deck.pop()]
-
-# Display starting state on EXP Brain Screen
-brain.screen.clear_screen()
-brain.screen.set_cursor(1, 1)
-brain.screen.print("Top Card:", discard_pile[-1][0], discard_pile[-1][1])
-brain.screen.set_cursor(2, 1)
-brain.screen.print("Player Cards:")
+# Run program
+main()
